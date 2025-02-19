@@ -1,0 +1,757 @@
+let todos = {
+    today: [],
+    tomorrow: [],
+    later: []
+};
+
+let projects = {};  // Store projects and their tasks
+
+let editingId = null;  // Track which task is being edited
+
+let notes = [];  // Store notes with timestamps
+
+let editingNoteId = null;  // Track which note is being edited
+
+function extractProjectFromText(text) {
+    const projectMatch = text.match(/#(\w+)/);
+    if (projectMatch) {
+        return {
+            project: projectMatch[1],
+            text: text.replace(/#\w+/, '').trim()
+        };
+    }
+    return { project: null, text: text };
+}
+
+function addTodo() {
+    const input = document.getElementById('todoInput');
+    const text = input.value.trim();
+    
+    if (text) {
+        const { project, text: taskText } = extractProjectFromText(text);
+        
+        const todo = {
+            id: Date.now(),
+            text: taskText,
+            completed: false,
+            date: new Date().toISOString().split('T')[0], // Today's date
+            project: project
+        };
+        
+        todos.today.push(todo);
+        
+        if (project) {
+            if (!projects[project]) {
+                projects[project] = [];
+            }
+            projects[project].push(todo);
+        }
+        
+        renderTodos();
+        renderProjects();
+        saveTodos();
+        input.value = '';
+    }
+}
+
+function toggleTodo(list, id) {
+    const todo = todos[list].find(t => t.id === id);
+    if (todo) {
+        todo.completed = !todo.completed;
+        
+        // Sync with project if task belongs to one
+        if (todo.project && projects[todo.project]) {
+            const projectTodo = projects[todo.project].find(t => t.id === id);
+            if (projectTodo) {
+                projectTodo.completed = todo.completed;
+            }
+        }
+        
+        renderTodos();
+        renderProjects();
+        saveTodos();
+    }
+}
+
+function deleteTodo(list, id) {
+    const todoToDelete = todos[list].find(todo => todo.id === id);
+    if (!todoToDelete) return;
+
+    if (todoToDelete.date === new Date().toISOString().split('T')[0] && !todoToDelete.isSubtask) {
+        // If it's a today's task, also delete its subtasks
+        todos[list] = todos[list].filter(todo => todo.id !== id && todo.parentId !== id);
+    } else {
+        // For other dates or subtasks, just delete the task
+        todos[list] = todos[list].filter(todo => todo.id !== id);
+    }
+    renderTodos();
+}
+
+// Add this helper function to sort tasks
+function sortTasksByCompletion(tasks) {
+    return [...tasks].sort((a, b) => {
+        if (a.completed === b.completed) return 0;
+        return a.completed ? 1 : -1;
+    });
+}
+
+function renderTodos() {
+    ['today', 'tomorrow', 'later'].forEach(list => {
+        const listElement = document.getElementById(`${list}-list`);
+        listElement.innerHTML = '';
+        
+        // Sort tasks - completed ones go to bottom
+        const sortedTodos = sortTasksByCompletion(todos[list]);
+        
+        sortedTodos.forEach(todo => {
+            const li = document.createElement('li');
+            li.className = 'todo-item';
+            li.draggable = true;
+            if (todo.completed) li.classList.add('completed');
+            
+            if (editingId === todo.id) {
+                // Render edit input
+                li.innerHTML = `
+                    <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                        onchange="toggleTodo('${list}', ${todo.id})">
+                    <input type="text" 
+                        class="edit-input" 
+                        value="${todo.text}${todo.project ? ` #${todo.project}` : ''}"
+                        onkeydown="if(event.key === 'Enter') saveEdit('${list}', ${todo.id}, this.value)"
+                        onblur="saveEdit('${list}', ${todo.id}, this.value)">
+                    ${todo.date ? `<span class="date">${todo.date}</span>` : ''}
+                    <button class="delete-btn" onclick="deleteTodo('${list}', ${todo.id})">×</button>
+                `;
+                
+                // Focus the input after rendering
+        setTimeout(() => {
+                    const input = li.querySelector('.edit-input');
+                input.focus();
+                input.select();
+                }, 0);
+            } else {
+                // Render normal view with project tag
+                li.innerHTML = `
+                    <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                        onchange="toggleTodo('${list}', ${todo.id})">
+                    <span class="task-text" ondblclick="startEditing('${list}', ${todo.id})">${todo.text}</span>
+                    ${todo.project ? `<span class="project-tag">#${todo.project}</span>` : ''}
+                    ${todo.date ? `<span class="date">${todo.date}</span>` : ''}
+                    <button class="delete-btn" onclick="deleteTodo('${list}', ${todo.id})">×</button>
+                `;
+            }
+            
+            li.addEventListener('dragstart', e => handleDragStart(e, list, todo.id));
+            li.addEventListener('dragend', handleDragEnd);
+            
+            listElement.appendChild(li);
+        });
+    });
+}
+
+function renderProjects() {
+    const projectsContainer = document.getElementById('projects-container');
+    projectsContainer.innerHTML = '';
+    
+    // Keep track of project order
+    if (!localStorage.getItem('projectOrder')) {
+        const projectOrder = Object.keys(projects);
+        localStorage.setItem('projectOrder', JSON.stringify(projectOrder));
+    }
+    
+    const projectOrder = JSON.parse(localStorage.getItem('projectOrder'));
+    // Add any new projects that aren't in the order
+    Object.keys(projects).forEach(project => {
+        if (!projectOrder.includes(project)) {
+            projectOrder.push(project);
+        }
+    });
+    // Remove any projects that no longer exist
+    const filteredOrder = projectOrder.filter(project => projects[project]);
+    localStorage.setItem('projectOrder', JSON.stringify(filteredOrder));
+    
+    filteredOrder.forEach(projectName => {
+        const projectTodos = projects[projectName];
+        if (!projectTodos || projectTodos.length === 0) return;
+        
+        const projectSection = document.createElement('div');
+        projectSection.className = 'project-section';
+        projectSection.draggable = true;
+        
+        // Add drag handlers to project section
+        projectSection.addEventListener('dragstart', e => handleProjectSectionDragStart(e, projectName));
+        projectSection.addEventListener('dragend', handleProjectSectionDragEnd);
+        
+        const projectHeader = document.createElement('div');
+        projectHeader.className = 'project-header';
+        projectHeader.innerHTML = `
+            <h2 class="project-title">
+                <span class="project-tag">#${projectName}</span>
+                ${projectName}
+            </h2>
+            <button class="delete-project-btn" onclick="deleteProject('${projectName}')">×</button>
+        `;
+
+        // Add project input section
+        const projectInput = document.createElement('div');
+        projectInput.className = 'project-input';
+        projectInput.innerHTML = `
+            <input type="text" 
+                class="project-task-input" 
+                placeholder="Add a task to #${projectName}..."
+                onkeypress="if(event.key === 'Enter') addProjectTodo('${projectName}', this.value)">
+        `;
+        
+        const todosList = document.createElement('ul');
+        todosList.className = 'todo-list';
+        todosList.id = `project-${projectName}-list`;
+        
+        // Sort project tasks - completed ones go to bottom
+        const sortedProjectTodos = sortTasksByCompletion(projectTodos);
+        
+        sortedProjectTodos.forEach(todo => {
+            const li = document.createElement('li');
+            li.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+            li.draggable = true;  // Make draggable
+            li.innerHTML = `
+                <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                    onchange="toggleProjectTodo('${projectName}', ${todo.id})">
+                <span class="task-text">${todo.text}</span>
+                ${todo.date ? `<span class="date">${todo.date}</span>` : ''}
+                <button class="delete-btn" onclick="deleteProjectTodo('${projectName}', ${todo.id})">×</button>
+            `;
+            
+            // Add drag handlers
+            li.addEventListener('dragstart', e => handleProjectDragStart(e, projectName, todo.id));
+            li.addEventListener('dragend', handleDragEnd);
+            
+            todosList.appendChild(li);
+        });
+        
+        // Add dragover handler to the list
+        todosList.addEventListener('dragover', e => {
+            e.preventDefault();
+            handleProjectDragOver(e, projectName);
+        });
+        
+        projectSection.appendChild(projectHeader);
+        projectSection.appendChild(projectInput);  // Add input section
+        projectSection.appendChild(todosList);
+        projectsContainer.appendChild(projectSection);
+    });
+    
+    // Add drag and drop handlers to container
+    projectsContainer.addEventListener('dragover', handleProjectSectionDragOver);
+    projectsContainer.addEventListener('drop', handleProjectSectionDrop);
+}
+
+function toggleProjectTodo(projectName, id) {
+    const todo = projects[projectName].find(t => t.id === id);
+    if (todo) {
+        todo.completed = !todo.completed;
+        
+        // Sync with all time-based lists
+        ['today', 'tomorrow', 'later'].forEach(list => {
+            const timeBasedTodo = todos[list].find(t => t.id === id);
+            if (timeBasedTodo) {
+                timeBasedTodo.completed = todo.completed;
+            }
+        });
+        
+        renderTodos();
+        renderProjects();
+        saveTodos();
+    }
+}
+
+function deleteProjectTodo(projectName, id) {
+    projects[projectName] = projects[projectName].filter(t => t.id !== id);
+    todos.today = todos.today.filter(t => t.id !== id);
+    renderTodos();
+    renderProjects();
+    saveTodos();
+}
+
+// Drag and Drop functionality
+function handleDragStart(e, sourceList, todoId) {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ sourceList, todoId }));
+    e.target.classList.add('dragging');
+}
+
+function handleDragEnd(e) {
+    e.target.classList.remove('dragging');
+}
+
+// Modify the column event listeners
+['today', 'tomorrow', 'later'].forEach(list => {
+    const column = document.getElementById(`${list}-column`);
+    
+    column.addEventListener('dragover', e => {
+            e.preventDefault();
+            column.classList.add('drag-over');
+        handleDragOver(e, list);
+    });
+    
+    column.addEventListener('dragleave', () => {
+            column.classList.remove('drag-over');
+        });
+
+    column.addEventListener('drop', e => {
+            e.preventDefault();
+            column.classList.remove('drag-over');
+            
+        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+        const { sourceList, todoId } = data;
+        
+        if (sourceList !== list) {
+            // Moving between lists (existing code)
+            const todoIndex = todos[sourceList].findIndex(t => t.id === todoId);
+            if (todoIndex !== -1) {
+                const todo = todos[sourceList][todoIndex];
+                
+                // Update date based on the target list
+                if (list === 'today') {
+                    todo.date = new Date().toISOString().split('T')[0];
+                } else if (list === 'tomorrow') {
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    todo.date = tomorrow.toISOString().split('T')[0];
+                } else if (list === 'later') {
+                    todo.date = null;
+                }
+                
+                // Update the date in the projects list if the task belongs to a project
+                if (todo.project && projects[todo.project]) {
+                    const projectTodo = projects[todo.project].find(t => t.id === todoId);
+                    if (projectTodo) {
+                        projectTodo.date = todo.date;
+                    }
+                }
+                
+                todos[sourceList].splice(todoIndex, 1);
+                todos[list].push(todo);
+            }
+        } else {
+            // Reordering within the same list
+            const listElement = document.getElementById(`${list}-list`);
+            const items = [...listElement.querySelectorAll('.todo-item')];
+            const newOrder = items.map(item => {
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                const todoId = checkbox.getAttribute('onchange').match(/\d+/)[0];
+                return parseInt(todoId);
+            });
+            
+            // Reorder the todos array based on the new DOM order
+            const reorderedTodos = newOrder.map(id => 
+                todos[list].find(todo => todo.id === id)
+            ).filter(Boolean);
+            
+            todos[list] = reorderedTodos;
+        }
+        
+        renderTodos();
+        renderProjects();
+                    saveTodos();
+    });
+});
+
+// Add event listener for Enter key
+document.getElementById('todoInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        addTodo();
+    }
+}); 
+
+// Add these functions at the top after todos declaration
+function saveTodos() {
+    const data = {
+        todos: todos,
+        projects: projects,
+        notes: notes
+    };
+    localStorage.setItem('justStartData', JSON.stringify(data));
+}
+
+function loadTodos() {
+    const savedData = localStorage.getItem('justStartData');
+    if (savedData) {
+        const data = JSON.parse(savedData);
+        todos = data.todos;
+        projects = data.projects;
+        notes = data.notes || [];  // Initialize empty array if no notes
+        renderTodos();
+        renderProjects();
+        renderNotes();
+    }
+}
+
+// Add loadTodos() call when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadTodos();
+});
+
+// Add this function to handle editing
+function startEditing(list, id) {
+    editingId = id;
+    renderTodos();
+}
+
+function saveEdit(list, id, newText) {
+    const todo = todos[list].find(t => t.id === id);
+    if (todo) {
+        // Extract project from edited text
+        const { project, text: taskText } = extractProjectFromText(newText);
+        
+        // Remove from old project if it existed
+        if (todo.project && projects[todo.project]) {
+            projects[todo.project] = projects[todo.project].filter(t => t.id !== id);
+        }
+        
+        // Update task text and project
+        todo.text = taskText;
+        todo.project = project;
+        
+        // Add to new project if specified
+        if (project) {
+            if (!projects[project]) {
+                projects[project] = [];
+            }
+            projects[project].push(todo);
+        }
+        
+        editingId = null;
+        renderTodos();
+        renderProjects();
+            saveTodos();
+    }
+}
+
+// Add this function to handle project suggestions
+function showProjectSuggestions(input) {
+    const cursorPosition = input.selectionStart;
+    const text = input.value;
+    const hashtagIndex = text.lastIndexOf('#', cursorPosition);
+    
+    if (hashtagIndex !== -1) {
+        const partial = text.slice(hashtagIndex + 1, cursorPosition).toLowerCase();
+        if (partial.length > 0) {
+            const suggestions = Object.keys(projects).filter(project => 
+                project.toLowerCase().startsWith(partial)
+            );
+            
+            if (suggestions.length > 0) {
+                renderSuggestions(suggestions, input, hashtagIndex);
+            } else {
+                hideSuggestions();
+            }
+        } else {
+            hideSuggestions();
+        }
+    } else {
+        hideSuggestions();
+    }
+}
+
+function renderSuggestions(suggestions, input, hashtagIndex) {
+    let suggestionBox = document.getElementById('project-suggestions');
+    if (!suggestionBox) {
+        suggestionBox = document.createElement('div');
+        suggestionBox.id = 'project-suggestions';
+        input.parentNode.appendChild(suggestionBox);
+    }
+    
+    const inputRect = input.getBoundingClientRect();
+    const textWidth = getTextWidth(input.value.slice(0, hashtagIndex + 1), input);
+    
+    // Update positioning to appear below the input
+    suggestionBox.style.position = 'absolute';
+    suggestionBox.style.left = `${inputRect.left + textWidth}px`;
+    suggestionBox.style.top = `${inputRect.bottom + 2}px`;  // Position just below input
+    suggestionBox.style.minWidth = '150px';  // Ensure minimum width for suggestions
+    
+    suggestionBox.innerHTML = suggestions.map(project => `
+        <div class="suggestion-item" onclick="selectProject('${project}', ${hashtagIndex})">
+            #${project}
+        </div>
+    `).join('');
+}
+
+function getTextWidth(text, input) {
+    const canvas = getTextWidth.canvas || (getTextWidth.canvas = document.createElement('canvas'));
+    const context = canvas.getContext('2d');
+    const computedStyle = window.getComputedStyle(input);
+    context.font = computedStyle.font;
+    return context.measureText(text).width;
+}
+
+function hideSuggestions() {
+    const suggestionBox = document.getElementById('project-suggestions');
+    if (suggestionBox) {
+        suggestionBox.remove();
+    }
+}
+
+function selectProject(project, hashtagIndex) {
+    const input = document.getElementById('todoInput');
+    const text = input.value;
+    const beforeHash = text.slice(0, hashtagIndex);
+    const afterPartial = text.slice(input.selectionStart);
+    
+    input.value = `${beforeHash}#${project}${afterPartial}`;
+    input.focus();
+    hideSuggestions();
+}
+
+// Modify the input event listeners
+document.getElementById('todoInput').addEventListener('input', function(e) {
+    showProjectSuggestions(this);
+});
+
+document.getElementById('todoInput').addEventListener('blur', function(e) {
+    // Small delay to allow clicking on suggestions
+    setTimeout(hideSuggestions, 200);
+});
+
+// Add new functions for project drag and drop
+function handleProjectDragStart(e, projectName, todoId) {
+    e.dataTransfer.setData('text/plain', JSON.stringify({ projectName, todoId }));
+    e.target.classList.add('dragging');
+}
+
+function handleProjectDragOver(e, projectName) {
+        e.preventDefault();
+        const draggingElement = document.querySelector('.dragging');
+    const listElement = document.getElementById(`project-${projectName}-list`);
+    const siblings = [...listElement.querySelectorAll('.todo-item:not(.dragging)')];
+    
+    // Get the dragged task's completion status
+    const draggedTaskId = parseInt(draggingElement.querySelector('input[type="checkbox"]').getAttribute('onchange').match(/\d+/)[0]);
+    const draggedTask = projects[projectName].find(t => t.id === draggedTaskId);
+    const isDraggedCompleted = draggedTask ? draggedTask.completed : false;
+    
+    // Find appropriate position based on completion status
+        const nextSibling = siblings.find(sibling => {
+        const siblingId = parseInt(sibling.querySelector('input[type="checkbox"]').getAttribute('onchange').match(/\d+/)[0]);
+        const siblingTask = projects[projectName].find(t => t.id === siblingId);
+        const isSiblingCompleted = siblingTask ? siblingTask.completed : false;
+        
+        if (isDraggedCompleted && !isSiblingCompleted) return false;
+        if (!isDraggedCompleted && isSiblingCompleted) return true;
+        
+            const rect = sibling.getBoundingClientRect();
+        const midPoint = rect.top + rect.height / 2;
+        return e.clientY < midPoint;
+        });
+
+        if (nextSibling) {
+        listElement.insertBefore(draggingElement, nextSibling);
+        } else {
+        listElement.appendChild(draggingElement);
+    }
+    
+    // Update the projects array order
+    const items = [...listElement.querySelectorAll('.todo-item')];
+    const newOrder = items.map(item => {
+        const checkbox = item.querySelector('input[type="checkbox"]');
+        const todoId = checkbox.getAttribute('onchange').match(/\d+/)[0];
+        return parseInt(todoId);
+    });
+    
+    // Reorder the projects array based on the new DOM order
+    const reorderedTodos = newOrder.map(id => 
+        projects[projectName].find(todo => todo.id === id)
+    ).filter(Boolean);
+    
+    projects[projectName] = reorderedTodos;
+    saveTodos();
+}
+
+// Add new function to handle adding tasks directly to projects
+function addProjectTodo(projectName, text) {
+    if (!text.trim()) return;
+    
+    const todo = {
+        id: Date.now(),
+        text: text.trim(),
+        completed: false,
+        date: new Date().toISOString().split('T')[0], // Today's date
+        project: projectName
+    };
+    
+    // Add to project
+    if (!projects[projectName]) {
+        projects[projectName] = [];
+    }
+    projects[projectName].push(todo);
+    
+    // Add to today's list
+    todos.today.push(todo);
+    
+    // Clear the input
+    const input = document.querySelector(`#project-${projectName}-list`).previousElementSibling.querySelector('input');
+    if (input) {
+        input.value = '';
+    }
+    
+    renderTodos();
+    renderProjects();
+    saveTodos();
+}
+
+// Add new function to handle project deletion
+function deleteProject(projectName) {
+    if (confirm(`Are you sure you want to delete project #${projectName} and all its tasks?`)) {
+        // Get all task IDs from this project
+        const projectTaskIds = projects[projectName].map(task => task.id);
+        
+        // Remove tasks from all time-based lists
+        ['today', 'tomorrow', 'later'].forEach(list => {
+            todos[list] = todos[list].filter(task => !projectTaskIds.includes(task.id));
+        });
+        
+        // Delete the project
+        delete projects[projectName];
+        
+        renderTodos();
+        renderProjects();
+        saveTodos();
+    }
+}
+
+// Add new functions for project section drag and drop
+function handleProjectSectionDragStart(e, projectName) {
+    e.dataTransfer.setData('text/plain', projectName);
+    e.target.classList.add('project-dragging');
+}
+
+function handleProjectSectionDragEnd(e) {
+    e.target.classList.remove('project-dragging');
+}
+
+function handleProjectSectionDragOver(e) {
+    e.preventDefault();
+    const draggingElement = document.querySelector('.project-dragging');
+    if (!draggingElement) return;
+    
+    const container = document.getElementById('projects-container');
+    const siblings = [...container.querySelectorAll('.project-section:not(.project-dragging)')];
+    
+    const nextSibling = siblings.find(sibling => {
+        const rect = sibling.getBoundingClientRect();
+        const midPoint = rect.top + rect.height / 2;
+        return e.clientY < midPoint;
+    });
+    
+    if (nextSibling) {
+        container.insertBefore(draggingElement, nextSibling);
+    } else {
+        container.appendChild(draggingElement);
+    }
+}
+
+function handleProjectSectionDrop(e) {
+    e.preventDefault();
+    const projectName = e.dataTransfer.getData('text/plain');
+    const container = document.getElementById('projects-container');
+    const projectSections = [...container.querySelectorAll('.project-section')];
+    
+    // Update project order
+    const newOrder = projectSections.map(section => {
+        const projectTag = section.querySelector('.project-tag');
+        return projectTag.textContent.substring(1); // Remove # from tag
+    });
+    
+    localStorage.setItem('projectOrder', JSON.stringify(newOrder));
+    renderProjects();
+    saveTodos();
+}
+
+// Add this function to handle adding notes
+function addNote() {
+    const input = document.getElementById('noteInput');
+    const text = input.value.trim();
+    
+    if (text) {
+        const note = {
+            id: Date.now(),
+            text: text,
+            timestamp: new Date().toLocaleString()
+        };
+        
+        notes.push(note);
+        input.value = '';
+        renderNotes();
+        saveTodos();  // Modify saveTodos to include notes
+    }
+}
+
+// Add this function to render notes
+function renderNotes() {
+    const notesContainer = document.getElementById('notes-container');
+    if (!notesContainer) return;
+    
+    const notesList = notesContainer.querySelector('.notes-list');
+    notesList.innerHTML = '';
+    
+    notes.forEach(note => {
+        const li = document.createElement('li');
+        li.className = 'note-item';
+        
+        if (editingNoteId === note.id) {
+            // Render edit input
+            li.innerHTML = `
+                <div class="note-content">
+                    <input type="text" 
+                        class="note-edit-input" 
+                        value="${note.text}"
+                        onkeydown="if(event.key === 'Enter') saveNoteEdit(${note.id}, this.value)"
+                        onblur="saveNoteEdit(${note.id}, this.value)">
+                    <span class="note-timestamp">${note.timestamp}</span>
+                </div>
+                <button class="delete-btn" onclick="deleteNote(${note.id})">×</button>
+            `;
+            
+            // Focus the input after rendering
+            setTimeout(() => {
+                const input = li.querySelector('.note-edit-input');
+                input.focus();
+                input.select();
+            }, 0);
+        } else {
+            // Render normal view
+            li.innerHTML = `
+                <div class="note-content">
+                    <span class="note-text" ondblclick="startNoteEditing(${note.id})">${note.text}</span>
+                    <span class="note-timestamp">${note.timestamp}</span>
+                </div>
+                <button class="delete-btn" onclick="deleteNote(${note.id})">×</button>
+            `;
+        }
+        
+        notesList.appendChild(li);
+    });
+}
+
+// Add functions to handle note editing
+function startNoteEditing(id) {
+    editingNoteId = id;
+    renderNotes();
+}
+
+function saveNoteEdit(id, newText) {
+    const note = notes.find(n => n.id === id);
+    if (note && newText.trim()) {
+        note.text = newText.trim();
+        note.timestamp = new Date().toLocaleString() + ' (edited)';
+        editingNoteId = null;
+        renderNotes();
+        saveTodos();
+    }
+}
+
+// Add function to delete notes
+function deleteNote(id) {
+    notes = notes.filter(note => note.id !== id);
+    renderNotes();
+    saveTodos();
+} 
