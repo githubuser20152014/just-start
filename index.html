@@ -453,6 +453,82 @@
             border-color: #3498db;
             box-shadow: 0 0 0 2px rgba(52,152,219,0.1);
         }
+
+        .motivation-section {
+            margin-top: 30px;
+            padding: 24px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border: 1px solid rgba(0,0,0,0.04);
+            text-align: center;
+        }
+
+        .quote-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .quote-text {
+            font-size: 18px;
+            color: #2c3e50;
+            line-height: 1.6;
+            font-style: italic;
+            margin-bottom: 16px;
+        }
+
+        .quote-subtext {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-top: 8px;
+        }
+
+        .quote-author {
+            font-size: 14px;
+            color: #34495e;
+            margin-top: 8px;
+            font-style: italic;
+        }
+
+        /* Add these styles for the focus task */
+        #today-list li.todo-item:first-child {
+            background: #f8f9ff;
+            border: 1px solid #3498db;
+            box-shadow: 0 2px 12px rgba(52,152,219,0.1);
+            transform: scale(1.02);
+            position: relative;
+            margin-bottom: 16px;
+        }
+
+        #today-list li.todo-item:first-child::before {
+            content: "FOCUS";
+            position: absolute;
+            top: -8px;
+            left: 8px;
+            background: #3498db;
+            color: white;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        #today-list li.todo-item:first-child.completed {
+            background: #f8f8f8;
+            border-color: #95a5a6;
+            opacity: 0.8;
+        }
+
+        #today-list li.todo-item:first-child.completed::before {
+            background: #95a5a6;
+        }
+
+        #today-list li.todo-item:first-child .task-text {
+            font-weight: 500;
+            color: #2c3e50;
+        }
     </style>
 </head>
 <body>
@@ -460,7 +536,9 @@
         <h1>Just start...</h1>
         <p class="subheading">"Start where you are. Use what you have. Do what you can." - Arthur Ashe</p>
         <div class="input-section">
-            <input type="text" id="todoInput" placeholder="Add a new task... Use #project to assign to a project">
+            <input type="text" 
+                id="todoInput" 
+                placeholder="Add a new task... Use #project for project and @tomorrow or @later for due date">
             <button onclick="addTodo()">Add Task</button>
         </div>
         <div class="lists-container">
@@ -494,6 +572,17 @@
                 </div>
                 <ul class="notes-list"></ul>
             </div>
+        </div>
+    </div>
+    <div class="motivation-section">
+        <div class="quote-container">
+            <p class="quote-text">
+                "The true measure of success is not in the number of tasks we complete, 
+                but in the progress we make and the person we become along the way."
+            </p>
+            <p class="quote-subtext">
+                Remember: Every step forward, no matter how small, is progress worth celebrating.
+            </p>
         </div>
     </div>
     <script src="script.js"></script>

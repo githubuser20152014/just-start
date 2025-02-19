@@ -14,13 +14,32 @@ let editingNoteId = null;  // Track which note is being edited
 
 function extractProjectFromText(text) {
     const projectMatch = text.match(/#(\w+)/);
+    const dateMatch = text.match(/@(\w+)/);
+    
+    let cleanText = text;
+    let project = null;
+    let dueDate = 'today'; // default due date
+    
     if (projectMatch) {
-        return {
-            project: projectMatch[1],
-            text: text.replace(/#\w+/, '').trim()
-        };
+        project = projectMatch[1];
+        cleanText = cleanText.replace(/#\w+/, '');
     }
-    return { project: null, text: text };
+    
+    if (dateMatch) {
+        const dateTerm = dateMatch[1].toLowerCase();
+        if (dateTerm === 'tomorrow') {
+            dueDate = 'tomorrow';
+        } else if (dateTerm === 'later') {
+            dueDate = 'later';
+        }
+        cleanText = cleanText.replace(/@\w+/, '');
+    }
+    
+    return {
+        project,
+        text: cleanText.trim(),
+        dueDate
+    };
 }
 
 function addTodo() {
@@ -28,17 +47,18 @@ function addTodo() {
     const text = input.value.trim();
     
     if (text) {
-        const { project, text: taskText } = extractProjectFromText(text);
+        const { project, text: taskText, dueDate } = extractProjectFromText(text);
         
         const todo = {
             id: Date.now(),
             text: taskText,
             completed: false,
-            date: new Date().toISOString().split('T')[0], // Today's date
+            date: new Date().toISOString().split('T')[0],
             project: project
         };
         
-        todos.today.push(todo);
+        // Add to appropriate time-based list
+        todos[dueDate].push(todo);
         
         if (project) {
             if (!projects[project]) {
@@ -265,8 +285,14 @@ function toggleProjectTodo(projectName, id) {
 }
 
 function deleteProjectTodo(projectName, id) {
+    // Remove from project
     projects[projectName] = projects[projectName].filter(t => t.id !== id);
-    todos.today = todos.today.filter(t => t.id !== id);
+    
+    // Remove from all time-based lists
+    ['today', 'tomorrow', 'later'].forEach(list => {
+        todos[list] = todos[list].filter(t => t.id !== id);
+    });
+    
     renderTodos();
     renderProjects();
     saveTodos();
@@ -280,6 +306,39 @@ function handleDragStart(e, sourceList, todoId) {
 
 function handleDragEnd(e) {
     e.target.classList.remove('dragging');
+}
+
+// Add this function back for time window drag and drop
+function handleDragOver(e, list) {
+    e.preventDefault();
+    const draggingElement = document.querySelector('.dragging');
+    const listElement = document.getElementById(`${list}-list`);
+    const siblings = [...listElement.querySelectorAll('.todo-item:not(.dragging)')];
+    
+    // Get the dragged task's completion status
+    const draggedTaskId = parseInt(draggingElement.querySelector('input[type="checkbox"]').getAttribute('onchange').match(/\d+/)[0]);
+    const draggedTask = todos[list].find(t => t.id === draggedTaskId);
+    const isDraggedCompleted = draggedTask ? draggedTask.completed : false;
+    
+    // Find appropriate position based on completion status
+    const nextSibling = siblings.find(sibling => {
+        const siblingId = parseInt(sibling.querySelector('input[type="checkbox"]').getAttribute('onchange').match(/\d+/)[0]);
+        const siblingTask = todos[list].find(t => t.id === siblingId);
+        const isSiblingCompleted = siblingTask ? siblingTask.completed : false;
+        
+        if (isDraggedCompleted && !isSiblingCompleted) return false;
+        if (!isDraggedCompleted && isSiblingCompleted) return true;
+        
+        const rect = sibling.getBoundingClientRect();
+        const midPoint = rect.top + rect.height / 2;
+        return e.clientY < midPoint;
+    });
+    
+    if (nextSibling) {
+        listElement.insertBefore(draggingElement, nextSibling);
+    } else {
+        listElement.appendChild(draggingElement);
+    }
 }
 
 // Modify the column event listeners
@@ -372,13 +431,49 @@ function saveTodos() {
     localStorage.setItem('justStartData', JSON.stringify(data));
 }
 
+// Add this function to fix data inconsistencies
+function syncProjectsWithTimeWindows() {
+    // Get all project tasks
+    const allProjectTasks = new Set();
+    Object.values(projects).forEach(projectTasks => {
+        projectTasks.forEach(task => {
+            allProjectTasks.add(task.id);
+            
+            // Ensure task is in the correct time window
+            let found = false;
+            ['today', 'tomorrow', 'later'].forEach(list => {
+                if (todos[list].some(t => t.id === task.id)) {
+                    found = true;
+                }
+            });
+            
+            // If task isn't in any time window, add it to today
+            if (!found) {
+                todos.today.push(task);
+            }
+        });
+    });
+    
+    // Clean up any orphaned tasks in time windows
+    ['today', 'tomorrow', 'later'].forEach(list => {
+        todos[list] = todos[list].filter(task => {
+            if (task.project) {
+                return allProjectTasks.has(task.id);
+            }
+            return true;
+        });
+    });
+}
+
+// Call this function when loading data and after major changes
 function loadTodos() {
     const savedData = localStorage.getItem('justStartData');
     if (savedData) {
         const data = JSON.parse(savedData);
         todos = data.todos;
         projects = data.projects;
-        notes = data.notes || [];  // Initialize empty array if no notes
+        notes = data.notes || [];
+        syncProjectsWithTimeWindows(); // Add this line
         renderTodos();
         renderProjects();
         renderNotes();
@@ -566,15 +661,18 @@ function handleProjectDragOver(e, projectName) {
     saveTodos();
 }
 
-// Add new function to handle adding tasks directly to projects
+// Modify the addProjectTodo function to handle due dates
 function addProjectTodo(projectName, text) {
     if (!text.trim()) return;
     
+    // Check for due date in the text
+    const { text: taskText, dueDate } = extractProjectFromText(text);
+    
     const todo = {
         id: Date.now(),
-        text: text.trim(),
+        text: taskText,
         completed: false,
-        date: new Date().toISOString().split('T')[0], // Today's date
+        date: new Date().toISOString().split('T')[0],
         project: projectName
     };
     
@@ -584,8 +682,8 @@ function addProjectTodo(projectName, text) {
     }
     projects[projectName].push(todo);
     
-    // Add to today's list
-    todos.today.push(todo);
+    // Add to appropriate time-based list
+    todos[dueDate].push(todo);
     
     // Clear the input
     const input = document.querySelector(`#project-${projectName}-list`).previousElementSibling.querySelector('input');
@@ -754,4 +852,7 @@ function deleteNote(id) {
     notes = notes.filter(note => note.id !== id);
     renderNotes();
     saveTodos();
-} 
+}
+
+// Update the input placeholder to show the new @ syntax
+document.getElementById('todoInput').placeholder = 'Add a new task... Use #project for project and @tomorrow or @later for due date'; 
