@@ -529,7 +529,226 @@
             font-weight: 500;
             color: #2c3e50;
         }
+
+        .insights-section {
+            margin-top: 30px;
+            padding: 24px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            border: 1px solid rgba(0,0,0,0.04);
+        }
+
+        .insights-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .insights-header h2 {
+            color: #2c3e50;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .generate-summary-btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .generate-summary-btn:hover {
+            background-color: #2980b9;
+            transform: translateY(-1px);
+        }
+
+        .insights-content {
+            padding: 16px;
+            border-radius: 8px;
+            background: #f8f9ff;
+            margin-top: 16px;
+            display: none; /* Hidden by default */
+        }
+
+        .insights-content.active {
+            display: block;
+        }
+
+        .summary-section {
+            margin-bottom: 20px;
+        }
+
+        .summary-section h3 {
+            color: #2c3e50;
+            font-size: 15px;
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+
+        .summary-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .summary-list li {
+            padding: 8px 0;
+            color: #34495e;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .highlight-text {
+            color: #27ae60;
+            font-weight: 500;
+        }
+
+        .reflection-text {
+            font-style: italic;
+            color: #7f8c8d;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .summary-narrative {
+            line-height: 1.6;
+            color: #34495e;
+            font-size: 15px;
+            margin-bottom: 16px;
+        }
+
+        .tomorrow-preview {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e0e0e0;
+            color: #34495e;
+            font-size: 14px;
+        }
+
+        .reflection-text {
+            font-size: 15px;
+            line-height: 1.6;
+            color: #2c3e50;
+            font-weight: 500;
+        }
+
+        .insight-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #e0e0e0;
+            transition: all 0.2s ease;
+        }
+
+        .insight-card.today {
+            border-color: #3498db;
+            box-shadow: 0 2px 12px rgba(52,152,219,0.1);
+        }
+
+        .insight-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .insight-header h3 {
+            color: #2c3e50;
+            font-size: 16px;
+            font-weight: 500;
+            margin: 0;
+        }
+
+        .insight-timestamp {
+            font-size: 12px;
+            color: #95a5a6;
+        }
+
+        .insight-content {
+            font-size: 14px;
+        }
+
+        .insight-content h4 {
+            color: #34495e;
+            font-size: 14px;
+            font-weight: 500;
+            margin: 16px 0 8px;
+        }
+
+        .no-insights {
+            text-align: center;
+            color: #7f8c8d;
+            padding: 40px 20px;
+            font-style: italic;
+        }
+
+        .search-section {
+            margin: -20px 0 30px;
+            padding: 0;
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .search-container {
+            position: relative;
+            width: 400px;
+            margin-left: 0;  /* Align with the Add task input */
+        }
+
+        #searchInput {
+            width: 100%;
+            padding: 8px 36px 8px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            background-color: white;
+            transition: all 0.2s ease;
+        }
+
+        #searchInput:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 2px 8px rgba(52,152,219,0.1);
+        }
+
+        .search-icon {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #7f8c8d;  /* Medium gray color */
+            font-size: 14px;
+            pointer-events: none;
+        }
+
+        .search-count {
+            position: absolute;
+            right: -80px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+
+        .task-highlight {
+            background-color: #fff3cd;
+            padding: 0 2px;
+            border-radius: 2px;
+        }
     </style>
+    <!-- Add Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
 </head>
 <body>
     <div class="container">
@@ -540,6 +759,16 @@
                 id="todoInput" 
                 placeholder="Add a new task... Use #project for project and @tomorrow or @later for due date">
             <button onclick="addTodo()">Add Task</button>
+        </div>
+        <div class="search-section">
+            <div class="search-container">
+                <input type="text" 
+                    id="searchInput" 
+                    placeholder="Search tasks..."
+                    oninput="searchTasks(this.value)">
+                <span class="search-icon">🔍</span>
+                <span class="search-count" id="searchCount"></span>
+            </div>
         </div>
         <div class="lists-container">
             <div class="list-column" id="today-column">
@@ -571,6 +800,17 @@
                         onkeypress="if(event.key === 'Enter') addNote()">
                 </div>
                 <ul class="notes-list"></ul>
+            </div>
+        </div>
+        <div class="insights-section">
+            <div class="insights-container" id="insights-container">
+                <div class="insights-header">
+                    <h2>Insights</h2>
+                    <button onclick="generateDailySummary()" class="generate-summary-btn">Generate Today's Summary</button>
+                </div>
+                <div class="insights-content" id="insights-content">
+                    <!-- Summary will be generated here -->
+                </div>
             </div>
         </div>
     </div>

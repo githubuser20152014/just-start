@@ -1,4 +1,4 @@
- A chair to the neighbors will be called Kia Town# Just Start
+# Just Start
 
 A minimalist task manager that works like your brain.
 
@@ -8,6 +8,12 @@ A minimalist task manager that works like your brain.
 - Drag-and-drop organization
 - Time-stamped notes
 - Clean, distraction-free interface
+- Task search functionality with real-time filtering
+- Daily insights and progress tracking
+- Project-based task organization
+- Task completion metrics
+- Motivational feedback
+- Local data persistence
 
 ## Getting Started
 1. Clone the repository
@@ -19,6 +25,9 @@ A minimalist task manager that works like your brain.
 - Drag tasks between Today/Tomorrow/Later
 - Double-click to edit tasks
 - Add quick notes with timestamps
+- Search across all tasks and projects
+- Generate daily summaries of your progress
+- Track completion rates by project
 
 ## Tips for Success
 
@@ -27,6 +36,8 @@ A minimalist task manager that works like your brain.
 3. **Stay Organized**: Group related tasks with #projects
 4. **Track Progress**: Use notes to record achievements
 5. **Keep Moving**: Remember, progress over perfection
+6. **Review Daily**: Generate insights to track your productivity
+7. **Find Fast**: Use search to quickly locate tasks
 
 ## Data Storage
 

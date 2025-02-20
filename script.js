@@ -1,3 +1,10 @@
+let userId = localStorage.getItem('userId');
+if (!userId) {
+    // Generate a new UUID if none exists
+    userId = crypto.randomUUID();
+    localStorage.setItem('userId', userId);
+}
+
 let todos = {
     today: [],
     tomorrow: [],
@@ -11,6 +18,8 @@ let editingId = null;  // Track which task is being edited
 let notes = [];  // Store notes with timestamps
 
 let editingNoteId = null;  // Track which note is being edited
+
+let insights = {};  // Store daily insights
 
 function extractProjectFromText(text) {
     const projectMatch = text.match(/#(\w+)/);
@@ -426,8 +435,11 @@ function saveTodos() {
     const data = {
         todos: todos,
         projects: projects,
-        notes: notes
+        notes: notes,
+        insights: insights,
+        lastUpdated: new Date().toISOString()
     };
+    
     localStorage.setItem('justStartData', JSON.stringify(data));
 }
 
@@ -467,23 +479,41 @@ function syncProjectsWithTimeWindows() {
 
 // Call this function when loading data and after major changes
 function loadTodos() {
+    // First try to load from localStorage
     const savedData = localStorage.getItem('justStartData');
+    console.log('Loading from localStorage:', savedData); // Debug log
+    
     if (savedData) {
-        const data = JSON.parse(savedData);
-        todos = data.todos;
-        projects = data.projects;
-        notes = data.notes || [];
-        syncProjectsWithTimeWindows(); // Add this line
-        renderTodos();
-        renderProjects();
-        renderNotes();
+        try {
+            const data = JSON.parse(savedData);
+            todos = data.todos || {
+                today: [],
+                tomorrow: [],
+                later: []
+            };
+            projects = data.projects || {};
+            notes = data.notes || [];
+            insights = data.insights || {};
+            
+            // Update UI
+            syncProjectsWithTimeWindows();
+            renderTodos();
+            renderProjects();
+            renderNotes();
+            renderInsights();
+        } catch (error) {
+            console.error('Error parsing localStorage data:', error);
+            // Initialize empty data structures if parsing fails
+            todos = { today: [], tomorrow: [], later: [] };
+            projects = {};
+            notes = [];
+            insights = {};
+        }
     }
 }
 
-// Add loadTodos() call when the page loads
-document.addEventListener('DOMContentLoaded', function() {
-    loadTodos();
-});
+// Call loadTodos when the page loads
+document.addEventListener('DOMContentLoaded', loadTodos);
 
 // Add this function to handle editing
 function startEditing(list, id) {
@@ -851,8 +881,259 @@ function saveNoteEdit(id, newText) {
 function deleteNote(id) {
     notes = notes.filter(note => note.id !== id);
     renderNotes();
-    saveTodos();
+                    saveTodos();
 }
 
 // Update the input placeholder to show the new @ syntax
 document.getElementById('todoInput').placeholder = 'Add a new task... Use #project for project and @tomorrow or @later for due date'; 
+
+// Add this function to generate daily summary
+function generateDailySummary() {
+    // Get today's date in EST
+    const now = new Date();
+    const today = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+        .toISOString().split('T')[0];
+    
+    const completedToday = todos.today.filter(task => task.completed);
+    
+    // Group tasks by project
+    const projectMetrics = {};
+    todos.today.forEach(task => {
+        const projectName = task.project || 'General';
+        if (!projectMetrics[projectName]) {
+            projectMetrics[projectName] = {
+                total: 0,
+                completed: 0
+            };
+        }
+        projectMetrics[projectName].total++;
+        if (task.completed) {
+            projectMetrics[projectName].completed++;
+        }
+    });
+
+    // Generate concise summary
+    let daySummary = '';
+    
+    if (Object.keys(projectMetrics).length > 0) {
+        Object.entries(projectMetrics).forEach(([project, metrics]) => {
+            if (project !== 'General') {
+                daySummary += `\n🎯 #${project}: ${metrics.completed}/${metrics.total} tasks completed`;
+            }
+        });
+
+        // Add general tasks last
+        if (projectMetrics['General']) {
+            const general = projectMetrics['General'];
+            if (general.total > 0) {
+                daySummary += `\n✨ Other tasks: ${general.completed}/${general.total} completed`;
+            }
+        }
+    } else {
+        daySummary = "No tasks were planned for today.";
+    }
+
+    // Calculate overall completion rate
+    const completionRate = todos.today.length > 0 
+        ? Math.round((completedToday.length / todos.today.length) * 100) 
+        : 0;
+    
+    // Generate motivational message based on progress
+    let motivationalMessage = '';
+    if (completionRate >= 80) {
+        motivationalMessage = "You're absolutely crushing it! Today's achievements show what you're capable of. Keep this momentum going! 🔥";
+    } else if (completionRate >= 50) {
+        motivationalMessage = "Solid progress today! You're building momentum and moving steadily toward your goals. Tomorrow brings new opportunities! 💪";
+    } else if (completionRate > 0) {
+        motivationalMessage = "Every step forward counts! You're making progress, and that's what matters. Let's build on today's achievements! ⭐";
+    } else {
+        motivationalMessage = "Today may have had its challenges, but tomorrow is a fresh start. Remember: progress isn't always visible, but every day brings us closer to our goals! 🌟";
+    }
+
+    // Get the first uncompleted task for tomorrow
+    const tomorrowsFocus = todos.tomorrow.find(task => !task.completed);
+
+    // Store the daily insight
+    insights[today] = {
+        summary: daySummary,
+        completionRate: completionRate,
+        motivationalMessage: motivationalMessage,
+        tomorrowsFocus: tomorrowsFocus ? tomorrowsFocus.text : null,
+        timestamp: new Date().toLocaleString()
+    };
+
+    // Save and render
+    saveTodos();
+    renderInsights();
+}
+
+// Add function to render insights
+function renderInsights() {
+    const insightsContent = document.getElementById('insights-content');
+    
+    // Get last 7 days
+    const dates = Object.keys(insights)
+        .sort()
+        .reverse()
+        .slice(0, 7);
+    
+    if (dates.length === 0) {
+        insightsContent.innerHTML = `
+            <div class="summary-section">
+                <p class="no-insights">No insights generated yet. Complete some tasks and generate a daily summary!</p>
+            </div>
+        `;
+        return;
+    }
+
+    const summaryHTML = dates.map(date => {
+        const insight = insights[date];
+        // Create date object with timezone consideration
+        const dateObj = new Date(date + 'T00:00:00');
+        const formattedDate = dateObj.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric',
+            timeZone: 'America/New_York'  // Set to EST
+        });
+        
+        return `
+            <div class="insight-card ${date === new Date().toISOString().split('T')[0] ? 'today' : ''}">
+                <div class="insight-header">
+                    <h3>${formattedDate}</h3>
+                    <span class="insight-timestamp">${insight.timestamp}</span>
+                </div>
+                <div class="insight-content">
+                    <div class="summary-section">
+                        <h4>Day in Review</h4>
+                        <p class="summary-narrative">${insight.summary}</p>
+                    </div>
+                    
+                    <div class="summary-section">
+                        <h4>Progress</h4>
+                        <p>Completion rate: <span class="highlight-text">${insight.completionRate}%</span></p>
+                    </div>
+                    
+                    <div class="summary-section">
+                        <p class="reflection-text">${insight.motivationalMessage}</p>
+                        ${insight.tomorrowsFocus ? `
+                            <p class="tomorrow-preview">
+                                Next day's focus: 
+                                <span class="highlight-text">${insight.tomorrowsFocus}</span>
+                            </p>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    insightsContent.innerHTML = summaryHTML;
+    insightsContent.classList.add('active');
+}
+
+// Add this right after initializing Firebase
+db.ref('.info/connected').on('value', (snap) => {
+    if (snap.val() === true) {
+        console.log('Connected to Firebase');
+    } else {
+        console.log('Not connected to Firebase');
+    }
+});
+
+// Add this function to handle searching
+function searchTasks(query) {
+    const searchCount = document.getElementById('searchCount');
+    if (!query.trim()) {
+        // Reset all highlights and show all tasks
+        renderTodos();
+        renderProjects();
+        searchCount.textContent = '';
+        return;
+    }
+
+    let totalMatches = 0;
+    const searchRegex = new RegExp(query, 'gi');
+
+    // Search in time-based lists
+    ['today', 'tomorrow', 'later'].forEach(list => {
+        const listElement = document.getElementById(`${list}-list`);
+        listElement.innerHTML = '';
+        
+        todos[list].forEach(todo => {
+            if (todo.text.toLowerCase().includes(query.toLowerCase()) ||
+                (todo.project && todo.project.toLowerCase().includes(query.toLowerCase()))) {
+                totalMatches++;
+                
+                const li = document.createElement('li');
+                li.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+                
+                // Highlight matching text
+                const highlightedText = todo.text.replace(searchRegex, match => 
+                    `<span class="task-highlight">${match}</span>`);
+                
+                li.innerHTML = `
+                    <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                        onchange="toggleTodo('${list}', ${todo.id})">
+                    <span class="task-text">${highlightedText}</span>
+                    ${todo.project ? `<span class="project-tag">#${todo.project}</span>` : ''}
+                    ${todo.date ? `<span class="date">${todo.date}</span>` : ''}
+                    <button class="delete-btn" onclick="deleteTodo('${list}', ${todo.id})">×</button>
+                `;
+                
+                listElement.appendChild(li);
+            }
+        });
+    });
+
+    // Search in projects
+    const projectsContainer = document.getElementById('projects-container');
+    projectsContainer.innerHTML = '';
+    
+    Object.entries(projects).forEach(([projectName, projectTodos]) => {
+        const matchingTodos = projectTodos.filter(todo => 
+            todo.text.toLowerCase().includes(query.toLowerCase()));
+        
+        if (matchingTodos.length > 0) {
+            totalMatches += matchingTodos.length;
+            
+            const projectSection = document.createElement('div');
+            projectSection.className = 'project-section';
+            
+            projectSection.innerHTML = `
+                <div class="project-header">
+                    <h2 class="project-title">
+                        <span class="project-tag">#${projectName}</span>
+                        ${projectName}
+                    </h2>
+                </div>
+            `;
+            
+            const todosList = document.createElement('ul');
+            todosList.className = 'todo-list';
+            
+            matchingTodos.forEach(todo => {
+                const highlightedText = todo.text.replace(searchRegex, match => 
+                    `<span class="task-highlight">${match}</span>`);
+                
+                const li = document.createElement('li');
+                li.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+                li.innerHTML = `
+                    <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                        onchange="toggleProjectTodo('${projectName}', ${todo.id})">
+                    <span class="task-text">${highlightedText}</span>
+                    ${todo.date ? `<span class="date">${todo.date}</span>` : ''}
+                    <button class="delete-btn" onclick="deleteProjectTodo('${projectName}', ${todo.id})">×</button>
+                `;
+                
+                todosList.appendChild(li);
+            });
+            
+            projectSection.appendChild(todosList);
+            projectsContainer.appendChild(projectSection);
+        }
+    });
+
+    // Update search count
+    searchCount.textContent = `${totalMatches} ${totalMatches === 1 ? 'match' : 'matches'}`;
+} 
